@@ -101,26 +101,11 @@ class InputHandler:
                 self.launch_vy = (self.launch_start_wy - self.launch_mouse_wy) * self.velocity_scale
 
     def _on_left_up(self, event):
+        # Agora, apenas libera o modo de arrasto, mas mantém self.launching True
         if not self.launching:
             return
-        self.launching = False
-
-        color = self.PLANET_COLORS[self.planet_counter % len(self.PLANET_COLORS)]
-        self.planet_counter += 1
-
-        planet = CelestialBody(
-            name=f"Planeta {self.planet_counter}",
-            x=self.launch_start_wx,
-            y=self.launch_start_wy,
-            mass=self.launch_mass,
-            radius=self.launch_radius,
-            color=color,
-            vx=self.launch_vx,
-            vy=self.launch_vy,
-            real_mass=self.launch_real_mass,
-            real_radius=self.launch_real_radius,
-        )
-        self.game.bodies.append(planet)
+        # O usuário pode soltar o mouse, mas a criação só ocorre com Enter
+        pass
 
     def _on_mouse_move(self, event):
         cam = self.game.camera
@@ -148,6 +133,62 @@ class InputHandler:
 
         if not self.launching:
             return
+
+        # Enter cria o planeta
+        if key == 'return':
+            color = self.PLANET_COLORS[self.planet_counter % len(self.PLANET_COLORS)]
+            self.planet_counter += 1
+            planet = CelestialBody(
+                name=f"Planeta {self.planet_counter}",
+                x=self.launch_start_wx,
+                y=self.launch_start_wy,
+                mass=self.launch_mass,
+                radius=self.launch_radius,
+                color=color,
+                vx=self.launch_vx,
+                vy=self.launch_vy,
+                real_mass=self.launch_real_mass,
+                real_radius=self.launch_real_radius,
+            )
+            self.game.bodies.append(planet)
+            self.launching = False
+            return
+
+        # Del cancela a criação
+        if key == 'delete':
+            self.launching = False
+            return
+
+        # Seleção de planeta para orbitar
+        if key in ['bracketleft', 'bracketright']:
+            bodies = [b for b in self.game.bodies if b is not None]
+            if not bodies:
+                return
+            # Se não há alvo, começa do mais próximo
+            if self.launch_orbit_target is None:
+                # Seleciona o corpo mais próximo do ponto de lançamento
+                physics = self.game.physics
+                target, _ = physics.find_dominant_body(bodies, self.launch_start_wx, self.launch_start_wy)
+                if target is not None:
+                    idx = bodies.index(target)
+                else:
+                    idx = 0
+            else:
+                idx = bodies.index(self.launch_orbit_target)
+            if key == 'bracketright':
+                idx = (idx + 1) % len(bodies)
+            else:
+                idx = (idx - 1) % len(bodies)
+            self.launch_orbit_target = bodies[idx]
+            # Atualiza velocidade orbital automaticamente
+            vx, vy = self.game.physics.compute_orbit_velocity(
+                self.launch_orbit_target, self.launch_start_wx, self.launch_start_wy
+            )
+            self.launch_vx = vx
+            self.launch_vy = vy
+            self.launch_wasd_active = True
+            return
+
         if key == 'o':
             self._apply_orbit_velocity()
             return
