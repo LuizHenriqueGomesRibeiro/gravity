@@ -2,8 +2,26 @@ import math
 from gravity_sim.models.body import CelestialBody
 
 
+
 class InputHandler:
     """Gerencia entrada do usuário: mouse e teclado."""
+
+    def simulate_all_trajectories(self):
+        """Simula e armazena trajetórias para todos os corpos não fixos e não fragmentos."""
+        physics = self.game.physics
+        bodies = self.game.bodies
+        for body in bodies:
+            if body.fixed or body.is_fragment:
+                body.simulated_traj = []
+                continue
+            # Simula trajetória considerando todos os corpos atuais
+            body.simulated_traj = physics.simulate_trajectory(
+                bodies,
+                body.x, body.y,
+                body.vx, body.vy,
+                body.radius,
+                max_steps=2000
+            )
 
     PLANET_COLORS = [
         "#4488ff", "#ff6644", "#44ff88", "#ff44ff",
@@ -151,6 +169,8 @@ class InputHandler:
                 real_radius=self.launch_real_radius,
             )
             self.game.bodies.append(planet)
+            # Simula trajetórias de todos os corpos após adicionar novo planeta
+            self.simulate_all_trajectories()
             self.launching = False
             return
 

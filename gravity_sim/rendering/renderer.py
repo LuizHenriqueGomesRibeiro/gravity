@@ -63,6 +63,17 @@ class Renderer:
         cam = self.game.camera
         canvas = self.game.canvas
         for body in self.game.bodies:
+            # Trajetória simulada (se existir)
+            if hasattr(body, 'simulated_traj') and body.simulated_traj:
+                traj = body.simulated_traj
+                if len(traj) >= 2:
+                    points = []
+                    for wx, wy in traj:
+                        sx, sy = cam.world_to_screen(wx, wy)
+                        points.extend([sx, sy])
+                    if len(points) >= 4:
+                        canvas.create_line(*points, fill="#aaaaaa", width=1, dash=(2, 6))
+            # Traço real
             if body.fixed or body.is_fragment or len(body.trail) < 2:
                 continue
             trail = body.trail
