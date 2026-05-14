@@ -14,6 +14,7 @@ class Renderer:
         canvas.delete("all")
         self._draw_grid()
         self._draw_trails()
+        self._draw_center_of_mass()
         self._draw_bodies()
         self._draw_slingshot()
         self._draw_hud()
@@ -31,7 +32,12 @@ class Renderer:
         right, bottom = cam.screen_to_world(cam.width, cam.height)
         origin_x = 0
         origin_y = 0
-        if self.game.tracked_body is not None:
+        if self.game.tracked_body == self.game.CENTER_OF_MASS_TARGET:
+            center = self.game.physics.compute_center_of_mass(self.game.bodies)
+            if center is not None:
+                origin_x = center["x"]
+                origin_y = center["y"]
+        elif self.game.tracked_body is not None:
             origin_x = self.game.tracked_body.x
             origin_y = self.game.tracked_body.y
 
@@ -103,6 +109,34 @@ class Renderer:
             canvas.create_oval(sx - r, sy - r, sx + r, sy + r,
                                fill=body.color, outline=body.color)
 
+    def _draw_center_of_mass(self):
+        center = self._get_center_of_mass()
+        if center is None:
+            return
+
+        cam = self.game.camera
+        canvas = self.game.canvas
+        sx, sy = cam.world_to_screen(center[0], center[1])
+        if sx < -30 or sx > cam.width + 30 or sy < -30 or sy > cam.height + 30:
+            return
+
+        r = 3
+        color = "#88ccff"
+        canvas.create_oval(
+            sx - r, sy - r, sx + r, sy + r,
+            fill=color, outline=color
+        )
+        canvas.create_text(
+            sx + 7, sy - 7, text="CM", fill=color,
+            anchor="w", font=("Consolas", 9)
+        )
+
+    def _get_center_of_mass(self):
+        center = self.game.physics.compute_center_of_mass(self.game.bodies)
+        if center is None:
+            return None
+        return center["x"], center["y"]
+
     def _draw_slingshot(self):
         inp = self.game.input_handler
         if not inp.launching:
@@ -151,21 +185,42 @@ class Renderer:
 
         # Corpo alvo de órbita
         orbit_target = inp.launch_orbit_target
-        if orbit_target is None:
+        center = physics.compute_center_of_mass(self.game.bodies)
+        nearby = None
+        nearby_name = None
+        nearby_x = None
+        nearby_y = None
+        orbit_selected = orbit_target is not None
+
+        if orbit_target == inp.CENTER_OF_MASS_TARGET and center is not None:
+            nearby_name = "CM"
+            nearby_x = center["x"]
+            nearby_y = center["y"]
+        elif orbit_target == inp.CENTER_OF_MASS_TARGET:
+            pass
+        elif orbit_target is None:
             nearby, _ = physics.find_dominant_body(
                 self.game.bodies, inp.launch_start_wx, inp.launch_start_wy
             )
+            if nearby:
+                nearby_name = nearby.name
+                nearby_x = nearby.x
+                nearby_y = nearby.y
         else:
             nearby = orbit_target
-        if nearby:
-            bsx, bsy = cam.world_to_screen(nearby.x, nearby.y)
+            nearby_name = nearby.name
+            nearby_x = nearby.x
+            nearby_y = nearby.y
+
+        if nearby_name is not None:
+            bsx, bsy = cam.world_to_screen(nearby_x, nearby_y)
             canvas.create_line(sx1, sy1, bsx, bsy,
-                               fill="#ffff44" if orbit_target else "#444400",
+                               fill="#ffff44" if orbit_selected else "#444400",
                                width=1, dash=(2, 4))
-            if orbit_target:
+            if orbit_selected:
                 orb_dist = math.sqrt(
-                    (inp.launch_start_wx - orbit_target.x) ** 2 +
-                    (inp.launch_start_wy - orbit_target.y) ** 2
+                    (inp.launch_start_wx - nearby_x) ** 2 +
+                    (inp.launch_start_wy - nearby_y) ** 2
                 )
                 orb_r = orb_dist * cam.zoom
                 canvas.create_oval(
@@ -179,7 +234,11 @@ class Renderer:
         g_surface = G * inp.launch_real_mass / (inp.launch_real_radius ** 2)
         dist_sol = math.sqrt(inp.launch_start_wx**2 + inp.launch_start_wy**2)
         dist_au = dist_sol / physics.AU
-        orbit_info = f"  [O: orbitar {nearby.name}]" if nearby else ""
+        orbit_info = ""
+        if nearby_name:
+            orbit_info = f"  [O: orbitar {nearby_name} | C: orbitar CM]"
+        elif center is not None:
+            orbit_info = "  [C: orbitar CM]"
         info = (f"v={speed:.1f}  m={inp.launch_real_mass:.2e}kg  "
                 f"g={g_surface:.1f}m/s\u00b2  d\u2609={dist_au:.2f}AU{orbit_info}")
         canvas.create_text(sx1, sy1 - r - 12, text=info,
@@ -204,7 +263,9 @@ class Renderer:
             f"Corpos: {n_bodies}" + (f" ({n_frags} frag)" if n_frags else "")
             + ("  [PAUSADO]" if self.game.paused else "")
         ]
-        if self.game.tracked_body:
+        if self.game.tracked_body == self.game.CENTER_OF_MASS_TARGET:
+            lines.append("Tracking: CM")
+        elif self.game.tracked_body:
             lines.append(f"Tracking: {self.game.tracked_body.name}")
 
         if inp.hovered_body:
@@ -229,7 +290,7 @@ class Renderer:
             )
             y_offset += 18
 
-        controls = "Scroll: Zoom | Mid Mouse: Pan | LClick: Lançar | 2x LClick: Tracking | P: Pausar | </>: Tempo | O: Orbitar | H: Trilhas"
+        controls = "Scroll: Zoom | Mid Mouse: Pan | LClick: Lançar | 2x LClick: Tracking | [/]: Alvo orbital | O: Orbitar | C: Orbitar CM | P: Pausar | </>: Tempo | H: Trilhas"
         canvas.create_text(
             10, cam.height - 10, text=controls, fill="#666666",
             anchor="sw", font=("Consolas", 9), tags="hud",

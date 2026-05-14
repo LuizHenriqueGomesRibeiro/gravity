@@ -7,6 +7,8 @@ from gravity_sim.rendering.renderer import Renderer
 
 
 class GravityGame:
+    CENTER_OF_MASS_TARGET = "center_of_mass"
+
     def __init__(self):
         self.root = tk.Tk()
         self.root.title("Jogo de Gravidade")
@@ -43,6 +45,15 @@ class GravityGame:
         self.root.after(16, self._game_loop)
 
     def _update_tracked_camera(self):
+        if self.tracked_body == self.CENTER_OF_MASS_TARGET:
+            center = self.physics.compute_center_of_mass(self.bodies)
+            if center is None:
+                self.tracked_body = None
+                return
+            self.camera.x = center["x"]
+            self.camera.y = center["y"]
+            return
+
         if self.tracked_body not in self.bodies:
             self.tracked_body = None
             return

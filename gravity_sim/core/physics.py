@@ -237,18 +237,52 @@ class PhysicsEngine:
         return best, best_dist
 
     def compute_orbit_velocity(self, target, launch_x, launch_y):
-        dx = launch_x - target.x
-        dy = launch_y - target.y
+        return self.compute_orbit_velocity_around_point(
+            target.x, target.y, target.vx, target.vy, target.mass,
+            launch_x, launch_y
+        )
+
+    def compute_center_of_mass(self, bodies):
+        total_mass = 0.0
+        weighted_x = 0.0
+        weighted_y = 0.0
+        weighted_vx = 0.0
+        weighted_vy = 0.0
+
+        for body in bodies:
+            if body.mass <= 0:
+                continue
+            total_mass += body.mass
+            weighted_x += body.x * body.mass
+            weighted_y += body.y * body.mass
+            weighted_vx += body.vx * body.mass
+            weighted_vy += body.vy * body.mass
+
+        if total_mass <= 0:
+            return None
+        return {
+            "x": weighted_x / total_mass,
+            "y": weighted_y / total_mass,
+            "vx": weighted_vx / total_mass,
+            "vy": weighted_vy / total_mass,
+            "mass": total_mass,
+        }
+
+    def compute_orbit_velocity_around_point(
+            self, center_x, center_y, center_vx, center_vy, center_mass,
+            launch_x, launch_y):
+        dx = launch_x - center_x
+        dy = launch_y - center_y
         dist = math.sqrt(dx * dx + dy * dy)
         if dist < 1e-6:
             return 0.0, 0.0
 
-        orbital_speed = math.sqrt(self.G_world * target.mass / dist)
+        orbital_speed = math.sqrt(self.G_world * center_mass / dist)
         nx = -dy / dist
         ny = dx / dist
 
-        vx = orbital_speed * nx + target.vx
-        vy = orbital_speed * ny + target.vy
+        vx = orbital_speed * nx + center_vx
+        vy = orbital_speed * ny + center_vy
         return vx, vy
 
     def simulate_trajectory(self, bodies, start_x, start_y, vx, vy,

@@ -27,6 +27,7 @@ class InputHandler:
         "#4488ff", "#ff6644", "#44ff88", "#ff44ff",
         "#44ffff", "#ffaa22", "#aa44ff", "#ff4488",
     ]
+    CENTER_OF_MASS_TARGET = "center_of_mass"
 
     def __init__(self, game):
         self.game = game
@@ -113,6 +114,15 @@ class InputHandler:
     def _on_left_double_click(self, event):
         cam = self.game.camera
         wx, wy = cam.screen_to_world(event.x, event.y)
+        center = self._center_of_mass_at_world(wx, wy)
+        if center is not None:
+            self.game.tracked_body = self.CENTER_OF_MASS_TARGET
+            self.launching = False
+            cam.x = center["x"]
+            cam.y = center["y"]
+            self.canvas.focus_set()
+            return
+
         body = self._body_at_world(wx, wy)
         if body is None:
             return
@@ -195,36 +205,36 @@ class InputHandler:
 
         # Seleção de planeta para orbitar
         if key in ['bracketleft', 'bracketright']:
-            bodies = [b for b in self.game.bodies if b is not None]
-            if not bodies:
+            targets = self._get_orbit_targets()
+            if not targets:
                 return
             # Se não há alvo, começa do mais próximo
             if self.launch_orbit_target is None:
                 # Seleciona o corpo mais próximo do ponto de lançamento
                 physics = self.game.physics
-                target, _ = physics.find_dominant_body(bodies, self.launch_start_wx, self.launch_start_wy)
-                if target is not None:
-                    idx = bodies.index(target)
+                target, _ = physics.find_dominant_body(
+                    self.game.bodies, self.launch_start_wx, self.launch_start_wy
+                )
+                if target is not None and target in targets:
+                    idx = targets.index(target)
                 else:
                     idx = 0
+            elif self.launch_orbit_target in targets:
+                idx = targets.index(self.launch_orbit_target)
             else:
-                idx = bodies.index(self.launch_orbit_target)
+                idx = 0
             if key == 'bracketright':
-                idx = (idx + 1) % len(bodies)
+                idx = (idx + 1) % len(targets)
             else:
-                idx = (idx - 1) % len(bodies)
-            self.launch_orbit_target = bodies[idx]
-            # Atualiza velocidade orbital automaticamente
-            vx, vy = self.game.physics.compute_orbit_velocity(
-                self.launch_orbit_target, self.launch_start_wx, self.launch_start_wy
-            )
-            self.launch_vx = vx
-            self.launch_vy = vy
-            self.launch_wasd_active = True
+                idx = (idx - 1) % len(targets)
+            self._apply_orbit_target_velocity(targets[idx])
             return
 
         if key == 'o':
             self._apply_orbit_velocity()
+            return
+        if key == 'c':
+            self._apply_center_of_mass_orbit_velocity()
             return
         if key == 'q':
             self.launch_mass = max(1.0, self.launch_mass / 1.5)
@@ -261,6 +271,10 @@ class InputHandler:
         self.launch_vy = speed * math.sin(angle)
 
     def _apply_orbit_velocity(self):
+        if self.launch_orbit_target == self.CENTER_OF_MASS_TARGET:
+            self._apply_center_of_mass_orbit_velocity()
+            return
+
         physics = self.game.physics
         target, dist = physics.find_dominant_body(
             self.game.bodies, self.launch_start_wx, self.launch_start_wy
@@ -271,6 +285,44 @@ class InputHandler:
         vx, vy = physics.compute_orbit_velocity(
             target, self.launch_start_wx, self.launch_start_wy
         )
+        self.launch_vx = vx
+        self.launch_vy = vy
+        self.launch_wasd_active = True
+
+    def _apply_center_of_mass_orbit_velocity(self):
+        self._apply_orbit_target_velocity(self.CENTER_OF_MASS_TARGET)
+
+    def _get_orbit_targets(self):
+        targets = [b for b in self.game.bodies if b is not None]
+        if self.game.physics.compute_center_of_mass(self.game.bodies) is not None:
+            targets.append(self.CENTER_OF_MASS_TARGET)
+        return targets
+
+    def _apply_orbit_target_velocity(self, target):
+        if target == self.CENTER_OF_MASS_TARGET:
+            self._apply_center_of_mass_target_velocity()
+            return
+
+        vx, vy = self.game.physics.compute_orbit_velocity(
+            target, self.launch_start_wx, self.launch_start_wy
+        )
+        self.launch_orbit_target = target
+        self.launch_vx = vx
+        self.launch_vy = vy
+        self.launch_wasd_active = True
+
+    def _apply_center_of_mass_target_velocity(self):
+        physics = self.game.physics
+        center = physics.compute_center_of_mass(self.game.bodies)
+        if center is None:
+            return
+        vx, vy = physics.compute_orbit_velocity_around_point(
+            center["x"], center["y"], center["vx"], center["vy"],
+            center["mass"], self.launch_start_wx, self.launch_start_wy
+        )
+        if vx == 0.0 and vy == 0.0:
+            return
+        self.launch_orbit_target = self.CENTER_OF_MASS_TARGET
         self.launch_vx = vx
         self.launch_vy = vy
         self.launch_wasd_active = True
@@ -288,6 +340,19 @@ class InputHandler:
             dist = math.sqrt(dx * dx + dy * dy)
             if dist <= max(body.radius, min_click_radius):
                 return body
+        return None
+
+    def _center_of_mass_at_world(self, wx, wy):
+        center = self.game.physics.compute_center_of_mass(self.game.bodies)
+        if center is None:
+            return None
+
+        min_click_radius = 8 / max(self.game.camera.zoom, 0.001)
+        dx = wx - center["x"]
+        dy = wy - center["y"]
+        dist = math.sqrt(dx * dx + dy * dy)
+        if dist <= min_click_radius:
+            return center
         return None
 
     def _on_resize(self, event):
