@@ -71,6 +71,7 @@ class InputHandler:
         self.canvas.bind("<ButtonPress-2>", self._on_mid_down)
         self.canvas.bind("<B2-Motion>", self._on_mid_drag)
         self.canvas.bind("<ButtonPress-1>", self._on_left_down)
+        self.canvas.bind("<Double-Button-1>", self._on_left_double_click)
         self.canvas.bind("<B1-Motion>", self._on_left_drag)
         self.canvas.bind("<ButtonRelease-1>", self._on_left_up)
         self.canvas.bind("<Motion>", self._on_mouse_move)
@@ -84,6 +85,7 @@ class InputHandler:
         self.game.camera.apply_scroll(event.x, event.y, zoom_in)
 
     def _on_mid_down(self, event):
+        self.game.tracked_body = None
         self.drag_start_x = event.x
         self.drag_start_y = event.y
 
@@ -106,6 +108,18 @@ class InputHandler:
         self.launch_vy = 0.0
         self.launch_wasd_active = False
         self.launch_orbit_target = None
+        self.canvas.focus_set()
+
+    def _on_left_double_click(self, event):
+        cam = self.game.camera
+        wx, wy = cam.screen_to_world(event.x, event.y)
+        body = self._body_at_world(wx, wy)
+        if body is None:
+            return
+        self.game.tracked_body = body
+        self.launching = False
+        cam.x = body.x
+        cam.y = body.y
         self.canvas.focus_set()
 
     def _on_left_drag(self, event):
@@ -262,14 +276,19 @@ class InputHandler:
         self.launch_wasd_active = True
 
     def _update_hover(self):
-        self.hovered_body = None
-        for body in self.game.bodies:
-            dx = self.mouse_world_x - body.x
-            dy = self.mouse_world_y - body.y
+        self.hovered_body = self._body_at_world(
+            self.mouse_world_x, self.mouse_world_y
+        )
+
+    def _body_at_world(self, wx, wy):
+        min_click_radius = 6 / max(self.game.camera.zoom, 0.001)
+        for body in reversed(self.game.bodies):
+            dx = wx - body.x
+            dy = wy - body.y
             dist = math.sqrt(dx * dx + dy * dy)
-            if dist <= body.radius:
-                self.hovered_body = body
-                break
+            if dist <= max(body.radius, min_click_radius):
+                return body
+        return None
 
     def _on_resize(self, event):
         self.game.camera.resize(event.width, event.height)

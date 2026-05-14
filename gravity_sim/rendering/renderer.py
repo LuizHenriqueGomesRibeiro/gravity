@@ -13,7 +13,6 @@ class Renderer:
         canvas = self.game.canvas
         canvas.delete("all")
         self._draw_grid()
-        self._draw_axes()
         self._draw_trails()
         self._draw_bodies()
         self._draw_slingshot()
@@ -30,14 +29,19 @@ class Renderer:
 
         left, top = cam.screen_to_world(0, 0)
         right, bottom = cam.screen_to_world(cam.width, cam.height)
+        origin_x = 0
+        origin_y = 0
+        if self.game.tracked_body is not None:
+            origin_x = self.game.tracked_body.x
+            origin_y = self.game.tracked_body.y
 
-        x = (left // step) * step
+        x = ((left - origin_x) // step) * step + origin_x
         while x <= right:
             sx, _ = cam.world_to_screen(x, 0)
             canvas.create_line(sx, 0, sx, cam.height, fill="#1a1a2e")
             x += step
 
-        y = (bottom // step) * step
+        y = ((bottom - origin_y) // step) * step + origin_y
         while y <= top:
             _, sy = cam.world_to_screen(0, y)
             canvas.create_line(0, sy, cam.width, sy, fill="#1a1a2e")
@@ -200,6 +204,8 @@ class Renderer:
             f"Corpos: {n_bodies}" + (f" ({n_frags} frag)" if n_frags else "")
             + ("  [PAUSADO]" if self.game.paused else "")
         ]
+        if self.game.tracked_body:
+            lines.append(f"Tracking: {self.game.tracked_body.name}")
 
         if inp.hovered_body:
             b = inp.hovered_body
@@ -223,7 +229,7 @@ class Renderer:
             )
             y_offset += 18
 
-        controls = "Scroll: Zoom | Mid Mouse: Pan | LClick: Lançar | P: Pausar | </>: Tempo | O: Orbitar | H: Trilhas"
+        controls = "Scroll: Zoom | Mid Mouse: Pan | LClick: Lançar | 2x LClick: Tracking | P: Pausar | </>: Tempo | O: Orbitar | H: Trilhas"
         canvas.create_text(
             10, cam.height - 10, text=controls, fill="#666666",
             anchor="sw", font=("Consolas", 9), tags="hud",
