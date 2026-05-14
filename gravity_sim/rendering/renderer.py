@@ -149,6 +149,10 @@ class Renderer:
         sx1, sy1 = cam.world_to_screen(inp.launch_start_wx, inp.launch_start_wy)
         sx2, sy2 = cam.world_to_screen(inp.launch_mouse_wx, inp.launch_mouse_wy)
 
+        if inp.binary_mode:
+            self._draw_binary_preview(sx1, sy1)
+            return
+
         vx = inp.launch_vx
         vy = inp.launch_vy
 
@@ -244,6 +248,88 @@ class Renderer:
         canvas.create_text(sx1, sy1 - r - 12, text=info,
                            fill="white", font=("Consolas", 9))
 
+    def _draw_binary_preview(self, sx_cm, sy_cm):
+        inp = self.game.input_handler
+        cam = self.game.camera
+        canvas = self.game.canvas
+
+        separation = max(inp.binary_separation, inp.launch_radius * 8)
+        dx = inp.launch_mouse_wx - inp.launch_start_wx
+        dy = inp.launch_mouse_wy - inp.launch_start_wy
+        dist = math.sqrt(dx * dx + dy * dy)
+        if dist < 1e-6:
+            ux, uy = 1.0, 0.0
+        else:
+            ux, uy = dx / dist, dy / dist
+
+        if inp.binary_mode == inp.BINARY_COMPANION:
+            mass_1 = inp.launch_mass
+            mass_2 = inp.launch_mass * inp.binary_companion_ratio
+            mode_name = "binario menor"
+        else:
+            mass_1 = inp.launch_mass
+            mass_2 = inp.launch_mass
+            mode_name = "binario igual"
+
+        total_mass = mass_1 + mass_2
+        radius_1 = inp.launch_radius
+        radius_2 = inp.launch_radius * (mass_2 / mass_1) ** (1 / 3)
+        separation = max(separation, (radius_1 + radius_2) * 3)
+        r1 = separation * mass_2 / total_mass
+        r2 = separation * mass_1 / total_mass
+
+        x1 = inp.launch_start_wx - ux * r1
+        y1 = inp.launch_start_wy - uy * r1
+        x2 = inp.launch_start_wx + ux * r2
+        y2 = inp.launch_start_wy + uy * r2
+        sx1, sy1 = cam.world_to_screen(x1, y1)
+        sx2, sy2 = cam.world_to_screen(x2, y2)
+
+        color_1 = inp.PLANET_COLORS[inp.planet_counter % len(inp.PLANET_COLORS)]
+        color_2 = inp.PLANET_COLORS[(inp.planet_counter + 1) % len(inp.PLANET_COLORS)]
+        pr1 = max(radius_1 * cam.zoom, 2)
+        pr2 = max(radius_2 * cam.zoom, 2)
+
+        canvas.create_line(sx1, sy1, sx2, sy2, fill="#666666", dash=(4, 4))
+        canvas.create_oval(sx1 - pr1, sy1 - pr1, sx1 + pr1, sy1 + pr1,
+                           fill=color_1, outline=color_1)
+        canvas.create_oval(sx2 - pr2, sy2 - pr2, sx2 + pr2, sy2 + pr2,
+                           fill=color_2, outline=color_2)
+
+        cm_r = 3
+        canvas.create_oval(
+            sx_cm - cm_r, sy_cm - cm_r, sx_cm + cm_r, sy_cm + cm_r,
+            fill="#88ccff", outline="#88ccff"
+        )
+        canvas.create_text(
+            sx_cm + 7, sy_cm - 7, text="CM", fill="#88ccff",
+            anchor="w", font=("Consolas", 9)
+        )
+
+        orbit_r1 = r1 * cam.zoom
+        orbit_r2 = r2 * cam.zoom
+        canvas.create_oval(
+            sx_cm - orbit_r1, sy_cm - orbit_r1,
+            sx_cm + orbit_r1, sy_cm + orbit_r1,
+            outline="#ffff44", width=1, dash=(3, 5)
+        )
+        canvas.create_oval(
+            sx_cm - orbit_r2, sy_cm - orbit_r2,
+            sx_cm + orbit_r2, sy_cm + orbit_r2,
+            outline="#ffff44", width=1, dash=(3, 5)
+        )
+
+        omega = math.sqrt(self.game.physics.G_world * total_mass / (separation ** 3))
+        info = (
+            f"{mode_name}  sep={separation:.1f}  "
+            f"m1={mass_1:.1f}  m2={mass_2:.1f}  w={omega:.3f}  "
+            "[Enter: criar | B/Shift+B: modo | Z/X: separacao]"
+        )
+        canvas.create_text(
+            sx_cm, sy_cm - max(orbit_r1, orbit_r2, 16) - 16,
+            text=info, fill="white", font=("Consolas", 9)
+        )
+
     def _draw_hud(self):
         cam = self.game.camera
         canvas = self.game.canvas
@@ -290,7 +376,7 @@ class Renderer:
             )
             y_offset += 18
 
-        controls = "Scroll: Zoom | Mid Mouse: Pan | LClick: Lançar | 2x LClick: Tracking | [/]: Alvo orbital | O: Orbitar | C: Orbitar CM | P: Pausar | </>: Tempo | H: Trilhas"
+        controls = "Scroll: Zoom | Mid Mouse: Pan | LClick: Lançar | B: Binário | Shift+B: Menor | Z/X: Separação | 2x LClick: Tracking | [/]: Alvo orbital | O/C: Orbitar | P: Pausar"
         canvas.create_text(
             10, cam.height - 10, text=controls, fill="#666666",
             anchor="sw", font=("Consolas", 9), tags="hud",

@@ -16,10 +16,12 @@ class PhysicsEngine:
         self.G_world = 1.0
         self.dt = 0.016
         self.sub_steps = 8
+        self.max_sub_dt = 0.125
+        self.max_sub_steps = 512
         self.time_scale = 1.0
         self.AU = 200.0
 
-    def step(self, bodies):
+    def _step_legacy(self, bodies):
         sub_dt = (self.dt * self.time_scale) / self.sub_steps
 
         # Separar: corpos principais (gravitam tudo) vs fragmentos (só sentem principais)
@@ -78,6 +80,96 @@ class PhysicsEngine:
             body.trail.append((body.x, body.y))
 
         return bodies
+
+    def step(self, bodies):
+        frame_dt = self.dt * self.time_scale
+        adaptive_steps = math.ceil(frame_dt / self.max_sub_dt)
+        step_count = min(
+            self.max_sub_steps, max(self.sub_steps, adaptive_steps)
+        )
+        sub_dt = frame_dt / step_count
+
+        main_bodies = [b for b in bodies if not b.is_fragment]
+        fragments = [b for b in bodies if b.is_fragment and not b.fixed]
+
+        for _ in range(step_count):
+            main_acc = self._compute_main_accelerations(main_bodies)
+            frag_acc = self._compute_fragment_accelerations(fragments, main_bodies)
+
+            for body, (ax, ay) in zip(main_bodies, main_acc):
+                if body.fixed:
+                    continue
+                body.vx += ax * sub_dt * 0.5
+                body.vy += ay * sub_dt * 0.5
+                body.x += body.vx * sub_dt
+                body.y += body.vy * sub_dt
+
+            for frag, (ax, ay) in zip(fragments, frag_acc):
+                frag.vx += ax * sub_dt * 0.5
+                frag.vy += ay * sub_dt * 0.5
+                frag.x += frag.vx * sub_dt
+                frag.y += frag.vy * sub_dt
+
+            main_acc = self._compute_main_accelerations(main_bodies)
+            frag_acc = self._compute_fragment_accelerations(fragments, main_bodies)
+
+            for body, (ax, ay) in zip(main_bodies, main_acc):
+                if body.fixed:
+                    continue
+                body.vx += ax * sub_dt * 0.5
+                body.vy += ay * sub_dt * 0.5
+
+            for frag, (ax, ay) in zip(fragments, frag_acc):
+                frag.vx += ax * sub_dt * 0.5
+                frag.vy += ay * sub_dt * 0.5
+
+        self._check_collisions(bodies)
+        self._check_roche_breakup(bodies)
+
+        for body in bodies:
+            if body.fixed:
+                continue
+            body.trail.append((body.x, body.y))
+
+        return bodies
+
+    def _compute_main_accelerations(self, bodies):
+        accelerations = []
+        for body in bodies:
+            if body.fixed:
+                accelerations.append((0.0, 0.0))
+                continue
+            ax, ay = 0.0, 0.0
+            for other in bodies:
+                if other is body:
+                    continue
+                force_x, force_y = self._acceleration_from(body, other)
+                ax += force_x
+                ay += force_y
+            accelerations.append((ax, ay))
+        return accelerations
+
+    def _compute_fragment_accelerations(self, fragments, main_bodies):
+        accelerations = []
+        for frag in fragments:
+            ax, ay = 0.0, 0.0
+            for other in main_bodies:
+                force_x, force_y = self._acceleration_from(frag, other)
+                ax += force_x
+                ay += force_y
+            accelerations.append((ax, ay))
+        return accelerations
+
+    def _acceleration_from(self, body, other):
+        dx = other.x - body.x
+        dy = other.y - body.y
+        dist_sq = dx * dx + dy * dy
+        dist = math.sqrt(dist_sq)
+        if dist < other.radius:
+            dist = other.radius
+            dist_sq = dist * dist
+        force = self.G_world * other.mass / dist_sq
+        return force * dx / dist, force * dy / dist
 
     def _check_collisions(self, bodies):
         to_remove = set()

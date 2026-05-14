@@ -28,6 +28,9 @@ class InputHandler:
         "#44ffff", "#ffaa22", "#aa44ff", "#ff4488",
     ]
     CENTER_OF_MASS_TARGET = "center_of_mass"
+    BINARY_EQUAL = "binary_equal"
+    BINARY_COMPANION = "binary_companion"
+    MAX_TIME_SCALE = 4096.0
 
     def __init__(self, game):
         self.game = game
@@ -53,6 +56,9 @@ class InputHandler:
         self.launch_real_mass = 5.972e24
         self.launch_radius = 5
         self.launch_real_radius = 6.371e6
+        self.binary_mode = None
+        self.binary_separation = 120.0
+        self.binary_companion_ratio = 0.25
 
         # WASD
         self.wasd_speed_step = 5.0
@@ -109,6 +115,7 @@ class InputHandler:
         self.launch_vy = 0.0
         self.launch_wasd_active = False
         self.launch_orbit_target = None
+        self.binary_mode = None
         self.canvas.focus_set()
 
     def _on_left_double_click(self, event):
@@ -138,6 +145,9 @@ class InputHandler:
             self.launch_mouse_wx, self.launch_mouse_wy = cam.screen_to_world(
                 event.x, event.y
             )
+            if self.binary_mode:
+                self._update_binary_separation_from_mouse()
+                return
             if not self.launch_wasd_active:
                 self.launch_vx = (self.launch_start_wx - self.launch_mouse_wx) * self.velocity_scale
                 self.launch_vy = (self.launch_start_wy - self.launch_mouse_wy) * self.velocity_scale
@@ -170,7 +180,9 @@ class InputHandler:
             self.game.physics.time_scale = max(0.1, self.game.physics.time_scale / 2)
             return
         if key == 'period' or key == 'greater':
-            self.game.physics.time_scale = min(64.0, self.game.physics.time_scale * 2)
+            self.game.physics.time_scale = min(
+                self.MAX_TIME_SCALE, self.game.physics.time_scale * 2
+            )
             return
 
         if not self.launching:
@@ -178,6 +190,12 @@ class InputHandler:
 
         # Enter cria o planeta
         if key == 'return':
+            if self.binary_mode:
+                self._create_binary_system()
+                self.simulate_all_trajectories()
+                self.launching = False
+                return
+
             color = self.PLANET_COLORS[self.planet_counter % len(self.PLANET_COLORS)]
             self.planet_counter += 1
             planet = CelestialBody(
@@ -201,6 +219,7 @@ class InputHandler:
         # Del cancela a criação
         if key == 'delete':
             self.launching = False
+            self.binary_mode = None
             return
 
         # Seleção de planeta para orbitar
@@ -235,6 +254,21 @@ class InputHandler:
             return
         if key == 'c':
             self._apply_center_of_mass_orbit_velocity()
+            return
+        if key == 'b':
+            shift_pressed = bool(getattr(event, "state", 0) & 0x0001)
+            self.binary_mode = (
+                self.BINARY_COMPANION if shift_pressed else self.BINARY_EQUAL
+            )
+            self.launch_orbit_target = None
+            self.launch_wasd_active = True
+            self._update_binary_separation_from_mouse()
+            return
+        if key == 'z':
+            self.binary_separation = max(20.0, self.binary_separation / 1.25)
+            return
+        if key == 'x':
+            self.binary_separation = min(2000.0, self.binary_separation * 1.25)
             return
         if key == 'q':
             self.launch_mass = max(1.0, self.launch_mass / 1.5)
@@ -354,6 +388,80 @@ class InputHandler:
         if dist <= min_click_radius:
             return center
         return None
+
+    def _update_binary_separation_from_mouse(self):
+        dx = self.launch_mouse_wx - self.launch_start_wx
+        dy = self.launch_mouse_wy - self.launch_start_wy
+        dist = math.sqrt(dx * dx + dy * dy)
+        min_sep = max(20.0, self.launch_radius * 8)
+        if dist >= min_sep:
+            self.binary_separation = min(2000.0, dist * 2)
+
+    def _create_binary_system(self):
+        separation = max(self.binary_separation, self.launch_radius * 8)
+        dx = self.launch_mouse_wx - self.launch_start_wx
+        dy = self.launch_mouse_wy - self.launch_start_wy
+        dist = math.sqrt(dx * dx + dy * dy)
+        if dist < 1e-6:
+            ux, uy = 1.0, 0.0
+        else:
+            ux, uy = dx / dist, dy / dist
+
+        if self.binary_mode == self.BINARY_COMPANION:
+            mass_1 = self.launch_mass
+            mass_2 = self.launch_mass * self.binary_companion_ratio
+            real_mass_1 = self.launch_real_mass
+            real_mass_2 = self.launch_real_mass * self.binary_companion_ratio
+        else:
+            mass_1 = self.launch_mass
+            mass_2 = self.launch_mass
+            real_mass_1 = self.launch_real_mass
+            real_mass_2 = self.launch_real_mass
+
+        total_mass = mass_1 + mass_2
+        radius_1 = self.launch_radius
+        radius_2 = self.launch_radius * (mass_2 / mass_1) ** (1 / 3)
+        real_radius_1 = self.launch_real_radius
+        real_radius_2 = self.launch_real_radius * (mass_2 / mass_1) ** (1 / 3)
+
+        min_sep = (radius_1 + radius_2) * 3
+        separation = max(separation, min_sep)
+        r1 = separation * mass_2 / total_mass
+        r2 = separation * mass_1 / total_mass
+        tx, ty = -uy, ux
+        omega = math.sqrt(self.game.physics.G_world * total_mass / (separation ** 3))
+
+        color_1 = self.PLANET_COLORS[self.planet_counter % len(self.PLANET_COLORS)]
+        color_2 = self.PLANET_COLORS[(self.planet_counter + 1) % len(self.PLANET_COLORS)]
+        name_1 = f"Planeta {self.planet_counter + 1}A"
+        name_2 = f"Planeta {self.planet_counter + 2}B"
+        self.planet_counter += 2
+
+        body_1 = CelestialBody(
+            name=name_1,
+            x=self.launch_start_wx - ux * r1,
+            y=self.launch_start_wy - uy * r1,
+            mass=mass_1,
+            radius=radius_1,
+            color=color_1,
+            vx=-tx * omega * r1,
+            vy=-ty * omega * r1,
+            real_mass=real_mass_1,
+            real_radius=real_radius_1,
+        )
+        body_2 = CelestialBody(
+            name=name_2,
+            x=self.launch_start_wx + ux * r2,
+            y=self.launch_start_wy + uy * r2,
+            mass=mass_2,
+            radius=radius_2,
+            color=color_2,
+            vx=tx * omega * r2,
+            vy=ty * omega * r2,
+            real_mass=real_mass_2,
+            real_radius=real_radius_2,
+        )
+        self.game.bodies.extend([body_1, body_2])
 
     def _on_resize(self, event):
         self.game.camera.resize(event.width, event.height)
