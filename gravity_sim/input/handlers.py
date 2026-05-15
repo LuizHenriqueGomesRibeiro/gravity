@@ -50,6 +50,7 @@ class InputHandler:
         self.launch_vy = 0.0
         self.launch_wasd_active = False
         self.launch_orbit_target = None
+        self.pause_before_launch = None
         self.velocity_scale = 1.5
         self.planet_counter = 0
         self.launch_mass = 195.0
@@ -107,6 +108,7 @@ class InputHandler:
         cam = self.game.camera
         wx, wy = cam.screen_to_world(event.x, event.y)
         self.launching = True
+        self._pause_for_launch()
         self.launch_start_wx = wx
         self.launch_start_wy = wy
         self.launch_mouse_wx = wx
@@ -124,7 +126,7 @@ class InputHandler:
         center = self._center_of_mass_at_world(wx, wy)
         if center is not None:
             self.game.tracked_body = self.CENTER_OF_MASS_TARGET
-            self.launching = False
+            self._finish_launch(created=False)
             cam.x = center["x"]
             cam.y = center["y"]
             self.canvas.focus_set()
@@ -134,7 +136,7 @@ class InputHandler:
         if body is None:
             return
         self.game.tracked_body = body
-        self.launching = False
+        self._finish_launch(created=False)
         cam.x = body.x
         cam.y = body.y
         self.canvas.focus_set()
@@ -193,7 +195,7 @@ class InputHandler:
             if self.binary_mode:
                 self._create_binary_system()
                 self.simulate_all_trajectories()
-                self.launching = False
+                self._finish_launch(created=True)
                 return
 
             color = self.PLANET_COLORS[self.planet_counter % len(self.PLANET_COLORS)]
@@ -213,13 +215,12 @@ class InputHandler:
             self.game.bodies.append(planet)
             # Simula trajetórias de todos os corpos após adicionar novo planeta
             self.simulate_all_trajectories()
-            self.launching = False
+            self._finish_launch(created=True)
             return
 
         # Del cancela a criação
         if key == 'delete':
-            self.launching = False
-            self.binary_mode = None
+            self._finish_launch(created=False)
             return
 
         # Seleção de planeta para orbitar
@@ -365,6 +366,20 @@ class InputHandler:
         self.hovered_body = self._body_at_world(
             self.mouse_world_x, self.mouse_world_y
         )
+
+    def _pause_for_launch(self):
+        if self.pause_before_launch is None:
+            self.pause_before_launch = self.game.paused
+        self.game.paused = True
+
+    def _finish_launch(self, created):
+        self.launching = False
+        self.binary_mode = None
+        if created:
+            self.game.paused = False
+        elif self.pause_before_launch is not None:
+            self.game.paused = self.pause_before_launch
+        self.pause_before_launch = None
 
     def _body_at_world(self, wx, wy):
         min_click_radius = 6 / max(self.game.camera.zoom, 0.001)

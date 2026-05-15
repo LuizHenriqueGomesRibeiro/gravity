@@ -265,15 +265,21 @@ class Renderer:
         if inp.binary_mode == inp.BINARY_COMPANION:
             mass_1 = inp.launch_mass
             mass_2 = inp.launch_mass * inp.binary_companion_ratio
+            real_mass_1 = inp.launch_real_mass
+            real_mass_2 = inp.launch_real_mass * inp.binary_companion_ratio
             mode_name = "binario menor"
         else:
             mass_1 = inp.launch_mass
             mass_2 = inp.launch_mass
+            real_mass_1 = inp.launch_real_mass
+            real_mass_2 = inp.launch_real_mass
             mode_name = "binario igual"
 
         total_mass = mass_1 + mass_2
         radius_1 = inp.launch_radius
         radius_2 = inp.launch_radius * (mass_2 / mass_1) ** (1 / 3)
+        real_radius_1 = inp.launch_real_radius
+        real_radius_2 = inp.launch_real_radius * (mass_2 / mass_1) ** (1 / 3)
         separation = max(separation, (radius_1 + radius_2) * 3)
         r1 = separation * mass_2 / total_mass
         r2 = separation * mass_1 / total_mass
@@ -320,14 +326,23 @@ class Renderer:
         )
 
         omega = math.sqrt(self.game.physics.G_world * total_mass / (separation ** 3))
+        G = 6.674e-11
+        g_surface_1 = G * real_mass_1 / (real_radius_1 ** 2)
+        g_surface_2 = G * real_mass_2 / (real_radius_2 ** 2)
         info = (
             f"{mode_name}  sep={separation:.1f}  "
             f"m1={mass_1:.1f}  m2={mass_2:.1f}  w={omega:.3f}  "
             "[Enter: criar | B/Shift+B: modo | Z/X: separacao]"
         )
+        gravity_info = f"g1={g_surface_1:.1f}m/s\u00b2  g2={g_surface_2:.1f}m/s\u00b2"
+        text_y = sy_cm - max(orbit_r1, orbit_r2, 16) - 16
         canvas.create_text(
-            sx_cm, sy_cm - max(orbit_r1, orbit_r2, 16) - 16,
+            sx_cm, text_y,
             text=info, fill="white", font=("Consolas", 9)
+        )
+        canvas.create_text(
+            sx_cm, text_y + 14,
+            text=gravity_info, fill="white", font=("Consolas", 9)
         )
 
     def _draw_hud(self):
