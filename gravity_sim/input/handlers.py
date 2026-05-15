@@ -30,6 +30,7 @@ class InputHandler:
     CENTER_OF_MASS_TARGET = "center_of_mass"
     BINARY_EQUAL = "binary_equal"
     BINARY_COMPANION = "binary_companion"
+    MAX_BINARY_SEPARATION = 200000.0
     MAX_TIME_SCALE = 4096.0
 
     def __init__(self, game):
@@ -59,6 +60,7 @@ class InputHandler:
         self.launch_real_radius = 6.371e6
         self.binary_mode = None
         self.binary_separation = 120.0
+        self.binary_separation_keyboard_locked = False
         self.binary_companion_ratio = 0.25
 
         # WASD
@@ -118,6 +120,7 @@ class InputHandler:
         self.launch_wasd_active = False
         self.launch_orbit_target = None
         self.binary_mode = None
+        self.binary_separation_keyboard_locked = False
         self.canvas.focus_set()
 
     def _on_left_double_click(self, event):
@@ -148,7 +151,8 @@ class InputHandler:
                 event.x, event.y
             )
             if self.binary_mode:
-                self._update_binary_separation_from_mouse()
+                if not self.binary_separation_keyboard_locked:
+                    self._update_binary_separation_from_mouse()
                 return
             if not self.launch_wasd_active:
                 self.launch_vx = (self.launch_start_wx - self.launch_mouse_wx) * self.velocity_scale
@@ -261,15 +265,22 @@ class InputHandler:
             self.binary_mode = (
                 self.BINARY_COMPANION if shift_pressed else self.BINARY_EQUAL
             )
+            self.binary_separation_keyboard_locked = False
             self.launch_orbit_target = None
             self.launch_wasd_active = True
             self._update_binary_separation_from_mouse()
             return
         if key == 'z':
             self.binary_separation = max(20.0, self.binary_separation / 1.25)
+            if self.binary_mode:
+                self.binary_separation_keyboard_locked = True
             return
         if key == 'x':
-            self.binary_separation = min(2000.0, self.binary_separation * 1.25)
+            self.binary_separation = min(
+                self.MAX_BINARY_SEPARATION, self.binary_separation * 1.25
+            )
+            if self.binary_mode:
+                self.binary_separation_keyboard_locked = True
             return
         if key == 'q':
             self.launch_mass = max(1.0, self.launch_mass / 1.5)
@@ -375,6 +386,7 @@ class InputHandler:
     def _finish_launch(self, created):
         self.launching = False
         self.binary_mode = None
+        self.binary_separation_keyboard_locked = False
         if created:
             self.game.paused = False
         elif self.pause_before_launch is not None:
@@ -410,7 +422,7 @@ class InputHandler:
         dist = math.sqrt(dx * dx + dy * dy)
         min_sep = max(20.0, self.launch_radius * 8)
         if dist >= min_sep:
-            self.binary_separation = min(2000.0, dist * 2)
+            self.binary_separation = min(self.MAX_BINARY_SEPARATION, dist * 2)
 
     def _create_binary_system(self):
         separation = max(self.binary_separation, self.launch_radius * 8)
